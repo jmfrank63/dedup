@@ -1,3 +1,5 @@
+#define _DEFAULT_SOURCE
+
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -11,7 +13,6 @@ void list_directory(const char *dir_path) {
         return;
     }
 
-    errno = 0;
     struct dirent *entry;
     while ((entry = readdir(dir)) != NULL) {
         // Skip the entries "." and ".." as we don't want to loop on them.
@@ -21,6 +22,14 @@ void list_directory(const char *dir_path) {
         char path[1024];
         snprintf(path, sizeof(path), "%s/%s", dir_path, entry->d_name);
 
+#if defined(_DIRENT_HAVE_D_TYPE)
+        if (entry->d_type == DT_DIR) {
+            printf("%s (directory)\n", path);
+            list_directory(path);
+        } else {
+            printf("%s\n", path);
+        }
+#else
         struct stat info;
         if (stat(path, &info) != 0) {
             perror("Failed to stat");
@@ -33,6 +42,7 @@ void list_directory(const char *dir_path) {
         } else {
             printf("%s\n", path);
         }
+#endif
     }
 
     closedir(dir);
