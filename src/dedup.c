@@ -23,7 +23,7 @@
 #define COLOR_FILE "\x1b[94m"
 #define COLOR_RESET "\x1b[0m"
 
-#define MAX_THREADS 1
+#define MAX_THREADS 16
 
 typedef struct {
     char path[1024];
@@ -73,12 +73,16 @@ void *list_directory(void *args) {
             blake3_hasher_init(&hasher);
             blake3_hasher_update(&hasher, path, strlen(path));
             uint8_t hash[BLAKE3_OUT_LEN];
+            char hash_str[BLAKE3_OUT_LEN * 2 +
+                          1]; // Each byte will be 2 characters in hex, plus
+                              // null terminator
             blake3_hasher_finalize(&hasher, hash, BLAKE3_OUT_LEN);
             for (size_t i = 0; i < BLAKE3_OUT_LEN; i++) {
-                printf("%02x", hash[i]);
+                sprintf(&hash_str[i * 2], "%02x", hash[i]);
             }
-            printf("\n");
-            printf(COLOR_DIRECTORY "%s (directory)\n" COLOR_RESET, path);
+
+            printf(COLOR_DIRECTORY "%s %s (directory)\n" COLOR_RESET, hash_str,
+                   path);
 
             ThreadArgs newArgs;
             strcpy(newArgs.path, path);
@@ -124,15 +128,17 @@ void *list_directory(void *args) {
             fclose(file);
 
             uint8_t hash[BLAKE3_OUT_LEN];
+            char hash_str[BLAKE3_OUT_LEN * 2 +
+                          1]; // Each byte will be 2 characters in hex, plus
+                              // null terminator
             blake3_hasher_finalize(&hasher, hash, BLAKE3_OUT_LEN);
             for (size_t i = 0; i < BLAKE3_OUT_LEN; i++) {
-                printf("%02x", hash[i]);
+                sprintf(&hash_str[i * 2], "%02x", hash[i]);
             }
-            printf("\n");
 
             stat(path, &path_stat);
 
-            printf(COLOR_FILE "%s (size: %ld)\n" COLOR_RESET, path,
+            printf(COLOR_FILE "%s %s (size: %ld)\n" COLOR_RESET, hash_str, path,
                    path_stat.st_size);
             thread_args->file_count++;
         }
