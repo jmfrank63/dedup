@@ -2,13 +2,16 @@
 #define _DEFAULT_SOURCE
 #endif
 
+#include "blake3.h"
 #include <dirent.h>
 #include <errno.h>
 #include <pthread.h>
+#include <semaphore.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #ifdef _WIN32
 #define PATH_SEPARATOR "\\"
@@ -20,12 +23,14 @@
 #define COLOR_FILE "\x1b[94m"
 #define COLOR_RESET "\x1b[0m"
 
-#define MAX_THREADS 4
+#define MAX_THREADS 1
 
 typedef struct {
     char path[1024];
     int file_count;
 } ThreadArgs;
+
+sem_t thread_limiter;
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 int total_file_count = 0;
@@ -63,25 +68,72 @@ void *list_directory(void *args) {
         stat(path, &path_stat);
         if (S_ISDIR(path_stat.st_mode)) {
 #endif
+            // Calculate and print the hash of the directory
+            blake3_hasher hasher;
+            blake3_hasher_init(&hasher);
+            blake3_hasher_update(&hasher, path, strlen(path));
+            uint8_t hash[BLAKE3_OUT_LEN];
+            blake3_hasher_finalize(&hasher, hash, BLAKE3_OUT_LEN);
+            for (size_t i = 0; i < BLAKE3_OUT_LEN; i++) {
+                printf("%02x", hash[i]);
+            }
+            printf("\n");
             printf(COLOR_DIRECTORY "%s (directory)\n" COLOR_RESET, path);
 
-            pthread_t thread;
-            ThreadArgs *newArgs = malloc(sizeof(ThreadArgs));
-            strcpy(newArgs->path, path);
-            newArgs->file_count = 0;
+            ThreadArgs newArgs;
+            strcpy(newArgs.path, path);
+            newArgs.file_count = 0;
 
-            if (pthread_create(&thread, NULL, list_directory, newArgs) != 0) {
-                perror("Failed to create thread");
+            if (sem_trywait(&thread_limiter) == 0) {
+                // If a thread is available, use it
+                pthread_t thread;
+                ThreadArgs *threadArgs = malloc(sizeof(ThreadArgs));
+                *threadArgs = newArgs;
+
+                if (pthread_create(&thread, NULL, list_directory, threadArgs) !=
+                    0) {
+                    perror("Failed to create thread");
+                }
+
+                pthread_join(thread, NULL);
+                thread_args->file_count += threadArgs->file_count;
+                free(threadArgs);
+
+                sem_post(&thread_limiter);
+            } else {
+                // If no threads are available, continue in the current thread
+                list_directory(&newArgs);
+                thread_args->file_count += newArgs.file_count;
+            }
+        } else {
+
+            // Calculate and print the hash of the file
+            FILE *file = fopen(path, "rb");
+            if (file == NULL) {
+                perror("Failed to open file");
+                return NULL;
             }
 
-            pthread_join(thread, NULL);
-            thread_args->file_count += newArgs->file_count;
-            free(newArgs);
-        } else {
-            
+            blake3_hasher hasher;
+            blake3_hasher_init(&hasher);
+            uint8_t buffer[4096];
+            size_t n;
+            while ((n = fread(buffer, 1, sizeof(buffer), file)) > 0) {
+                blake3_hasher_update(&hasher, buffer, n);
+            }
+            fclose(file);
+
+            uint8_t hash[BLAKE3_OUT_LEN];
+            blake3_hasher_finalize(&hasher, hash, BLAKE3_OUT_LEN);
+            for (size_t i = 0; i < BLAKE3_OUT_LEN; i++) {
+                printf("%02x", hash[i]);
+            }
+            printf("\n");
+
             stat(path, &path_stat);
-            
-            printf(COLOR_FILE "%s (size: %ld)\n" COLOR_RESET, path, path_stat.st_size);
+
+            printf(COLOR_FILE "%s (size: %ld)\n" COLOR_RESET, path,
+                   path_stat.st_size);
             thread_args->file_count++;
         }
     }
@@ -95,7 +147,7 @@ void *list_directory(void *args) {
     return NULL;
 }
 
-char* format_size(size_t size) {
+char *format_size(size_t size) {
     const char *units[] = {"B", "KB", "MB", "GB", "TB"};
     int i = 0;
     double display_size = (double)size;
@@ -103,7 +155,7 @@ char* format_size(size_t size) {
         display_size /= 1024;
     }
 
-    char *result = malloc(20);  // Allocate enough space for the result
+    char *result = malloc(20); // Allocate enough space for the result
     snprintf(result, 20, "%.2f %s", display_size, units[i]);
     return result;
 }
@@ -123,7 +175,11 @@ int main(int argc, char *argv[]) {
     strcpy(args.path, argv[1]);
     args.file_count = 0;
 
+    sem_init(&thread_limiter, 0, MAX_THREADS);
+
     list_directory(&args);
+
+    sem_destroy(&thread_limiter);
 
     printf("Total file count: %d\n", total_file_count);
 
