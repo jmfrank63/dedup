@@ -4,7 +4,7 @@ LIBS=-Lsubmodules/criterion/build/src
 INCLUDES=-Isubmodules/BLAKE3/c -Isubmodules/criterion/include
 
 dedup: src/dedup.c lib/ring_buffer.c
-	$(CC) $(CFLAGS) \
+	@$(CC) $(CFLAGS) \
 	src/dedup.c \
 	lib/ring_buffer.c \
 	submodules/BLAKE3/c/blake3.c \
@@ -17,20 +17,24 @@ dedup: src/dedup.c lib/ring_buffer.c
 	-o dedup $(INCLUDES) $(LIBS) 
 
 clean:
-	rm -f dedup
+	@rm -f dedup
 
 clean_all:
-	rm -f dedup test_ring_buffer
+	@rm -f dedup test_ring_buffer
 
 all: dedup test
-	LD_LIBRARY_PATH=$(LD_LIBRARY_PATH):submodules/criterion/build/src ./test_ring_buffer
+
+run_tests: test
+	@LD_LIBRARY_PATH=$(LD_LIBRARY_PATH):submodules/criterion/build/src ./test_ring_buffer
 
 .PHONY: criterion
 criterion:
-	cd submodules/criterion && meson build && cd build && ninja
+	@if [ ! -d "submodules/criterion/build" ]; then \
+        cd submodules/criterion && meson build && cd build && ninja; \
+    fi
 
 test: tests/test_ring_buffer.c criterion
-	$(CC) $(CFLAGS) \
+	@$(CC) $(CFLAGS) \
     lib/ring_buffer.c \
     tests/test_ring_buffer.c \
     -o test_ring_buffer \
