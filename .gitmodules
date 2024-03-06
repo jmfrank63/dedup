@@ -1,3 +1,6 @@
 [submodule "submodules/BLAKE3"]
 	path = submodules/BLAKE3
 	url = https://github.com/BLAKE3-team/BLAKE3.git
+[submodule "submodules/criterion"]
+	path = submodules/criterion
+	url = https://github.com/Snaipe/Criterion.git
