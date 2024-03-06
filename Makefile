@@ -23,7 +23,7 @@ clean_all:
 	rm -f dedup test_ring_buffer
 
 all: dedup test
-	./test_ring_buffer
+	LD_LIBRARY_PATH=$(LD_LIBRARY_PATH):submodules/criterion/build/src ./test_ring_buffer
 
 .PHONY: criterion
 criterion:
