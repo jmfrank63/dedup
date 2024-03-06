@@ -26,6 +26,45 @@
 #define MAX_THREADS 16
 
 typedef struct {
+    void (*init)(void *);
+    void (*update)(void *, const void *, size_t);
+    void (*finalize)(void *, uint8_t *, size_t);
+} HashAlgorithm;
+
+void blake3_init(void *state) { blake3_hasher_init((blake3_hasher *)state); }
+
+void blake3_update(void *state, const void *input, size_t input_len) {
+    blake3_hasher_update((blake3_hasher *)state, input, input_len);
+}
+
+void blake3_finalize(void *state, uint8_t *output, size_t output_len) {
+    blake3_hasher_finalize((blake3_hasher *)state, output, output_len);
+}
+
+HashAlgorithm blake3_algorithm = {
+    .init = blake3_init, .update = blake3_update, .finalize = blake3_finalize};
+
+void compute_hash(const char *path, HashAlgorithm *algorithm, uint8_t *hash) {
+    FILE *file = fopen(path, "rb");
+    if (file == NULL) {
+        // Handle error
+        return;
+    }
+
+    blake3_hasher hasher;
+    algorithm->init(&hasher);
+
+    uint8_t buffer[4096];
+    size_t n;
+    while ((n = fread(buffer, 1, sizeof(buffer), file)) > 0) {
+        algorithm->update(&hasher, buffer, n);
+    }
+    fclose(file);
+
+    algorithm->finalize(&hasher, hash, BLAKE3_OUT_LEN);
+}
+
+typedef struct {
     char path[1024];
     int file_count;
 } ThreadArgs;
@@ -69,14 +108,12 @@ void *list_directory(void *args) {
         if (S_ISDIR(path_stat.st_mode)) {
 #endif
             // Calculate and print the hash of the directory
-            blake3_hasher hasher;
-            blake3_hasher_init(&hasher);
-            blake3_hasher_update(&hasher, path, strlen(path));
             uint8_t hash[BLAKE3_OUT_LEN];
+            compute_hash(path, &blake3_algorithm, hash);
+
             char hash_str[BLAKE3_OUT_LEN * 2 +
                           1]; // Each byte will be 2 characters in hex, plus
                               // null terminator
-            blake3_hasher_finalize(&hasher, hash, BLAKE3_OUT_LEN);
             for (size_t i = 0; i < BLAKE3_OUT_LEN; i++) {
                 sprintf(&hash_str[i * 2], "%02x", hash[i]);
             }
@@ -112,26 +149,12 @@ void *list_directory(void *args) {
         } else {
 
             // Calculate and print the hash of the file
-            FILE *file = fopen(path, "rb");
-            if (file == NULL) {
-                perror("Failed to open file");
-                return NULL;
-            }
-
-            blake3_hasher hasher;
-            blake3_hasher_init(&hasher);
-            uint8_t buffer[4096];
-            size_t n;
-            while ((n = fread(buffer, 1, sizeof(buffer), file)) > 0) {
-                blake3_hasher_update(&hasher, buffer, n);
-            }
-            fclose(file);
-
             uint8_t hash[BLAKE3_OUT_LEN];
+            compute_hash(path, &blake3_algorithm, hash);
+
             char hash_str[BLAKE3_OUT_LEN * 2 +
                           1]; // Each byte will be 2 characters in hex, plus
                               // null terminator
-            blake3_hasher_finalize(&hasher, hash, BLAKE3_OUT_LEN);
             for (size_t i = 0; i < BLAKE3_OUT_LEN; i++) {
                 sprintf(&hash_str[i * 2], "%02x", hash[i]);
             }
