@@ -23,7 +23,7 @@
 #define COLOR_FILE "\x1b[94m"
 #define COLOR_RESET "\x1b[0m"
 
-#define MAX_THREADS 16
+#define MAX_THREADS 2
 
 typedef struct {
     void (*init)(void *);
@@ -44,7 +44,7 @@ void blake3_finalize(void *state, uint8_t *output, size_t output_len) {
 HashAlgorithm blake3_algorithm = {
     .init = blake3_init, .update = blake3_update, .finalize = blake3_finalize};
 
-void compute_hash(const char *path, HashAlgorithm *algorithm, uint8_t *hash) {
+void compute_hash(const char *path, HashAlgorithm *algorithm, uint8_t *hash, size_t *total) {
     FILE *file = fopen(path, "rb");
     if (file == NULL) {
         // Handle error
@@ -54,10 +54,11 @@ void compute_hash(const char *path, HashAlgorithm *algorithm, uint8_t *hash) {
     blake3_hasher hasher;
     algorithm->init(&hasher);
 
-    uint8_t buffer[4096];
+    uint8_t buffer[16384];
     size_t n;
     while ((n = fread(buffer, 1, sizeof(buffer), file)) > 0) {
         algorithm->update(&hasher, buffer, n);
+        *total += n;
     }
     fclose(file);
 
@@ -86,7 +87,6 @@ void *list_directory(void *args) {
     }
 
     struct dirent *entry;
-    struct stat path_stat;
     while ((entry = readdir(dir)) != NULL) {
         // Skip the entries "." and ".." as we don't want to loop on them.
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
@@ -107,19 +107,7 @@ void *list_directory(void *args) {
         stat(path, &path_stat);
         if (S_ISDIR(path_stat.st_mode)) {
 #endif
-            // Calculate and print the hash of the directory
-            uint8_t hash[BLAKE3_OUT_LEN];
-            compute_hash(path, &blake3_algorithm, hash);
-
-            char hash_str[BLAKE3_OUT_LEN * 2 +
-                          1]; // Each byte will be 2 characters in hex, plus
-                              // null terminator
-            for (size_t i = 0; i < BLAKE3_OUT_LEN; i++) {
-                sprintf(&hash_str[i * 2], "%02x", hash[i]);
-            }
-
-            printf(COLOR_DIRECTORY "%s %s (directory)\n" COLOR_RESET, hash_str,
-                   path);
+            printf(COLOR_DIRECTORY "%s (directory)\n" COLOR_RESET, path);
 
             ThreadArgs newArgs;
             strcpy(newArgs.path, path);
@@ -150,7 +138,8 @@ void *list_directory(void *args) {
 
             // Calculate and print the hash of the file
             uint8_t hash[BLAKE3_OUT_LEN];
-            compute_hash(path, &blake3_algorithm, hash);
+            size_t size = 0;
+            compute_hash(path, &blake3_algorithm, hash, &size);
 
             char hash_str[BLAKE3_OUT_LEN * 2 +
                           1]; // Each byte will be 2 characters in hex, plus
@@ -159,10 +148,7 @@ void *list_directory(void *args) {
                 sprintf(&hash_str[i * 2], "%02x", hash[i]);
             }
 
-            stat(path, &path_stat);
-
-            printf(COLOR_FILE "%s %s (size: %ld)\n" COLOR_RESET, hash_str, path,
-                   path_stat.st_size);
+            printf(COLOR_FILE "%s %s (size %ld)\n" COLOR_RESET, hash_str, path, size);
             thread_args->file_count++;
         }
     }
