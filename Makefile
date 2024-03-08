@@ -29,7 +29,6 @@ run_tests: tests
     LD_LIBRARY_PATH=$(LD_LIBRARY_PATH):submodules/criterion/build/src ./test_stack && \
 	echo "Running stack_list tests..." && \
     LD_LIBRARY_PATH=$(LD_LIBRARY_PATH):submodules/criterion/build/src ./test_stack_list
-
 .PHONY: criterion
 criterion:
 	@if [ ! -d "submodules/criterion/build" ]; then \
@@ -37,20 +36,15 @@ criterion:
     fi
 
 tests: $(TEST_SRC_FILES) $(LIB_SRC_FILES) criterion
-	@$(CC) $(CFLAGS) \
-    lib/ring_buffer.c \
+	@$(CC) $(CFLAGS) $(LIB_SRC_FILES) \
     tests/test_ring_buffer.c \
     -o test_ring_buffer \
     $(INCLUDES) $(LIBS) -lcriterion
-	@$(CC) $(CFLAGS) \
-    lib/stack.c \
-	lib/stack_list.c \
+	@$(CC) $(CFLAGS) $(LIB_SRC_FILES) \
     tests/test_stack.c \
     -o test_stack \
     $(INCLUDES) $(LIBS) -lcriterion
-	@$(CC) $(CFLAGS) \
-	lib/stack.c \
-    lib/stack_list.c \
+	@$(CC) $(CFLAGS) $(LIB_SRC_FILES) \
     tests/test_stack_list.c \
     -o test_stack_list \
     $(INCLUDES) $(LIBS) -lcriterion

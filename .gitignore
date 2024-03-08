@@ -4,3 +4,6 @@ dedup
 build
 dist
 install
+test_ring_buffer
+test_stack
+test_stack_list
