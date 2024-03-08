@@ -44,7 +44,8 @@ void blake3_finalize(void *state, uint8_t *output, size_t output_len) {
 HashAlgorithm blake3_algorithm = {
     .init = blake3_init, .update = blake3_update, .finalize = blake3_finalize};
 
-void compute_hash(const char *path, HashAlgorithm *algorithm, uint8_t *hash, size_t *total) {
+void compute_hash(const char *path, HashAlgorithm *algorithm, uint8_t *hash,
+                  size_t *total) {
     FILE *file = fopen(path, "rb");
     if (file == NULL) {
         // Handle error
@@ -102,7 +103,6 @@ void *list_directory(void *args) {
 
 #if defined(_DIRENT_HAVE_D_TYPE)
         if (entry->d_type == DT_DIR) {
-
 #else
         stat(path, &path_stat);
         if (S_ISDIR(path_stat.st_mode)) {
@@ -148,7 +148,8 @@ void *list_directory(void *args) {
                 sprintf(&hash_str[i * 2], "%02x", hash[i]);
             }
 
-            printf(COLOR_FILE "%s %s (size %ld)\n" COLOR_RESET, hash_str, path, size);
+            printf(COLOR_FILE "%s %s (size %ld)\n" COLOR_RESET, hash_str, path,
+                   size);
             thread_args->file_count++;
         }
     }
