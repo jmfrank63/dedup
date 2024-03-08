@@ -5,7 +5,7 @@
 #include "ring_buffer.h"
 
 
-RingBuffer* createRingBuffer(int size) {
+RingBuffer* create_ring_buffer(int size) {
     RingBuffer *buffer = (RingBuffer*)malloc(sizeof(RingBuffer));
     buffer->size = size;
     buffer->start = 0;
@@ -16,14 +16,14 @@ RingBuffer* createRingBuffer(int size) {
     return buffer;
 }
 
-void destroyRingBuffer(RingBuffer *buffer) {
+void destroy_ring_buffer(RingBuffer *buffer) {
     pthread_mutex_destroy(&buffer->mutex);
     pthread_cond_destroy(&buffer->cond);
     free(buffer->elems);
     free(buffer);
 }
 
-void writeRingBuffer(RingBuffer *buffer, char *elem) {
+void write_ring_buffer(RingBuffer *buffer, char *elem) {
     pthread_mutex_lock(&buffer->mutex);
     if (buffer->full) {
         pthread_cond_wait(&buffer->cond, &buffer->mutex);  // wait for space
@@ -37,7 +37,7 @@ void writeRingBuffer(RingBuffer *buffer, char *elem) {
     pthread_mutex_unlock(&buffer->mutex);
 }
 
-char* readRingBuffer(RingBuffer *buffer) {
+char* read_ring_buffer(RingBuffer *buffer) {
     pthread_mutex_lock(&buffer->mutex);
     if (!buffer->full && buffer->start == buffer->end) {
         pthread_cond_wait(&buffer->cond, &buffer->mutex);  // wait for data
@@ -48,5 +48,35 @@ char* readRingBuffer(RingBuffer *buffer) {
     pthread_cond_signal(&buffer->cond);  // signal new space available
     pthread_mutex_unlock(&buffer->mutex);
     return elem;
+}
+
+int get_free_space(RingBuffer *buffer) {
+    pthread_mutex_lock(&buffer->mutex);
+    int free_space = buffer->full ? 0 : (buffer->end >= buffer->start ? buffer->size - buffer->end + buffer->start : buffer->start - buffer->end);
+    pthread_mutex_unlock(&buffer->mutex);
+    return free_space;
+}
+
+bool is_buffer_full(RingBuffer *buffer) {
+    pthread_mutex_lock(&buffer->mutex);
+    bool full = buffer->full;
+    pthread_mutex_unlock(&buffer->mutex);
+    return full;
+}
+
+void clear_buffer(RingBuffer *buffer) {
+    pthread_mutex_lock(&buffer->mutex);
+    buffer->start = 0;
+    buffer->end = 0;
+    buffer->full = false;
+    pthread_cond_signal(&buffer->cond);  // signal new space available
+    pthread_mutex_unlock(&buffer->mutex);
+}
+
+bool is_buffer_empty(RingBuffer *buffer) {
+    pthread_mutex_lock(&buffer->mutex);
+    bool empty = (!buffer->full && (buffer->start == buffer->end));
+    pthread_mutex_unlock(&buffer->mutex);
+    return empty;
 }
 

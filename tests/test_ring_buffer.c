@@ -10,7 +10,7 @@ void *write_to_buffer(void *arg) {
     for (int i = 0; i < 3; i++) {
         char *elem = malloc(20);
         sprintf(elem, "test%d", i + 1);
-        writeRingBuffer(buffer, elem);
+        write_ring_buffer(buffer, elem);
     }
     return NULL;
 }
@@ -23,13 +23,13 @@ void *read_from_buffer(void *arg) {
                           &buffer->mutex); // wait for buffer to be full
     }
     pthread_mutex_unlock(&buffer->mutex);
-    char *elem = readRingBuffer(buffer);
+    char *elem = read_ring_buffer(buffer);
     free(elem); // free the element after reading it
     return NULL;
 }
 
 Test(ring_buffer, write_blocks_when_full) {
-    RingBuffer *buffer = createRingBuffer(2);
+    RingBuffer *buffer = create_ring_buffer(2);
 
     pthread_t write_thread, read_thread;
     pthread_create(&write_thread, NULL, write_to_buffer, buffer);
@@ -56,35 +56,35 @@ Test(ring_buffer, write_blocks_when_full) {
         "Element 0 was not written correctly, expected test2 got %s",
         buffer->elems[(buffer->start + 1) % buffer->size]);
 
-    destroyRingBuffer(buffer);
+    destroy_ring_buffer(buffer);
 }
 
 Test(ring_buffer, create_and_destroy) {
-    RingBuffer *buffer = createRingBuffer(2);
+    RingBuffer *buffer = create_ring_buffer(2);
     cr_assert_not_null(buffer, "Buffer was not created");
     cr_assert_null(buffer->elems[0],
                    "Buffer elements should be initialized to NULL");
     cr_assert_null(buffer->elems[1],
                    "Buffer elements should be initialized to NULL");
-    destroyRingBuffer(buffer);
+    destroy_ring_buffer(buffer);
 }
 
 Test(ring_buffer, write_single_element) {
-    RingBuffer *buffer = createRingBuffer(2);
+    RingBuffer *buffer = create_ring_buffer(2);
 
-    writeRingBuffer(buffer, "test1");
+    write_ring_buffer(buffer, "test1");
 
     cr_assert_str_eq(buffer->elems[0], "test1",
                      "First element was not written correctly");
 
-    destroyRingBuffer(buffer);
+    destroy_ring_buffer(buffer);
 }
 
 Test(ring_buffer, write_two_elements) {
-    RingBuffer *buffer = createRingBuffer(2);
+    RingBuffer *buffer = create_ring_buffer(2);
 
-    writeRingBuffer(buffer, "test1");
-    writeRingBuffer(buffer, "test2");
+    write_ring_buffer(buffer, "test1");
+    write_ring_buffer(buffer, "test2");
 
     cr_assert_str_eq(buffer->elems[1], "test2",
                      "Second element was not written correctly");
@@ -92,97 +92,140 @@ Test(ring_buffer, write_two_elements) {
     cr_assert(buffer->full,
               "Buffer not marked as full after writing 2 elements");
 
-    destroyRingBuffer(buffer);
+    destroy_ring_buffer(buffer);
 }
 
 Test(ring_buffer, read_single_element) {
-    RingBuffer *buffer = createRingBuffer(2);
+    RingBuffer *buffer = create_ring_buffer(2);
 
-    writeRingBuffer(buffer, "test1");
-    writeRingBuffer(buffer, "test2");
+    write_ring_buffer(buffer, "test1");
+    write_ring_buffer(buffer, "test2");
 
-    cr_assert_str_eq(readRingBuffer(buffer), "test1",
+    cr_assert_str_eq(read_ring_buffer(buffer), "test1",
                      "First element was not read correctly");
 
     cr_assert_not(buffer->full,
                   "Buffer should not be marked full after reading one element");
 
-    destroyRingBuffer(buffer);
+    destroy_ring_buffer(buffer);
 }
 
 Test(ring_buffer, write_after_read) {
-    RingBuffer *buffer = createRingBuffer(2);
+    RingBuffer *buffer = create_ring_buffer(2);
 
-    writeRingBuffer(buffer, "test1");
-    writeRingBuffer(buffer, "test2");
-    readRingBuffer(buffer);
-    writeRingBuffer(buffer, "test3");
+    write_ring_buffer(buffer, "test1");
+    write_ring_buffer(buffer, "test2");
+    read_ring_buffer(buffer);
+    write_ring_buffer(buffer, "test3");
 
     cr_assert(buffer->full,
               "Buffer not marked as full after writing second elements again");
 
-    destroyRingBuffer(buffer);
+    destroy_ring_buffer(buffer);
 }
 
 Test(ring_buffer, read_second_element) {
-    RingBuffer *buffer = createRingBuffer(2);
+    RingBuffer *buffer = create_ring_buffer(2);
 
-    writeRingBuffer(buffer, "test1");
-    writeRingBuffer(buffer, "test2");
-    readRingBuffer(buffer);
-    writeRingBuffer(buffer, "test3");
-    cr_assert_str_eq(readRingBuffer(buffer), "test2",
+    write_ring_buffer(buffer, "test1");
+    write_ring_buffer(buffer, "test2");
+    read_ring_buffer(buffer);
+    write_ring_buffer(buffer, "test3");
+    cr_assert_str_eq(read_ring_buffer(buffer), "test2",
                      "Second element was not read correctly");
-    cr_assert_str_eq(readRingBuffer(buffer), "test3",
+    cr_assert_str_eq(read_ring_buffer(buffer), "test3",
                      "Third element was not read correctly");
-    destroyRingBuffer(buffer);
+    destroy_ring_buffer(buffer);
 }
 
 Test(ring_buffer, buffer_not_full_initially) {
-    RingBuffer *buffer = createRingBuffer(2);
+    RingBuffer *buffer = create_ring_buffer(2);
 
     cr_assert_not(buffer->full,
                   "Buffer should not be marked as full initially");
 
-    destroyRingBuffer(buffer);
+    destroy_ring_buffer(buffer);
 }
 
 Test(ring_buffer, buffer_full_after_two_writes) {
-    RingBuffer *buffer = createRingBuffer(2);
+    RingBuffer *buffer = create_ring_buffer(2);
 
-    writeRingBuffer(buffer, "test1");
-    writeRingBuffer(buffer, "test2");
+    write_ring_buffer(buffer, "test1");
+    write_ring_buffer(buffer, "test2");
 
     cr_assert(buffer->full,
               "Buffer should be marked as full after writing 2 elements");
 
-    destroyRingBuffer(buffer);
+    destroy_ring_buffer(buffer);
 }
 
 Test(ring_buffer, buffer_not_full_after_read) {
-    RingBuffer *buffer = createRingBuffer(2);
+    RingBuffer *buffer = create_ring_buffer(2);
 
-    writeRingBuffer(buffer, "test1");
-    writeRingBuffer(buffer, "test2");
-    readRingBuffer(buffer);
+    write_ring_buffer(buffer, "test1");
+    write_ring_buffer(buffer, "test2");
+    read_ring_buffer(buffer);
 
     cr_assert_not(
         buffer->full,
         "Buffer should not be marked as full after reading one element");
 
-    destroyRingBuffer(buffer);
+    destroy_ring_buffer(buffer);
 }
 
 Test(ring_buffer, buffer_full_after_write_read_write) {
-    RingBuffer *buffer = createRingBuffer(2);
+    RingBuffer *buffer = create_ring_buffer(2);
 
-    writeRingBuffer(buffer, "test1");
-    writeRingBuffer(buffer, "test2");
-    readRingBuffer(buffer);
-    writeRingBuffer(buffer, "test3");
+    write_ring_buffer(buffer, "test1");
+    write_ring_buffer(buffer, "test2");
+    read_ring_buffer(buffer);
+    write_ring_buffer(buffer, "test3");
 
     cr_assert(buffer->full, "Buffer should be marked as full after writing, "
                             "reading, and writing again");
 
-    destroyRingBuffer(buffer);
+    destroy_ring_buffer(buffer);
+}
+
+Test(ring_buffer, test_get_free_space) {
+    RingBuffer *buffer = create_ring_buffer(5);
+    cr_assert_eq(get_free_space(buffer), 5, "After initialization, free space should be equal to buffer size");
+    write_ring_buffer(buffer, "test");
+    cr_assert_eq(get_free_space(buffer), 4, "After writing one element, free space should decrease by 1");
+    clear_buffer(buffer);
+    cr_assert_eq(get_free_space(buffer), 5, "After clearing, free space should be equal to buffer size");
+    destroy_ring_buffer(buffer);
+}
+
+Test(ring_buffer, test_is_buffer_full) {
+    RingBuffer *buffer = create_ring_buffer(2);
+    cr_assert_eq(is_buffer_full(buffer), false, "After initialization, buffer should not be full");
+    write_ring_buffer(buffer, "test");
+    cr_assert_eq(is_buffer_full(buffer), false, "After writing one element to a buffer of size 2, buffer should not be full");
+    write_ring_buffer(buffer, "test");
+    cr_assert_eq(is_buffer_full(buffer), true, "After writing two elements to a buffer of size 2, buffer should be full");
+    clear_buffer(buffer);
+    cr_assert_eq(is_buffer_full(buffer), false, "After clearing, buffer should not be full");
+    destroy_ring_buffer(buffer);
+}
+
+Test(ring_buffer, test_clear_buffer) {
+    RingBuffer *buffer = create_ring_buffer(2);
+    write_ring_buffer(buffer, "test");
+    write_ring_buffer(buffer, "test");
+    cr_assert_eq(is_buffer_full(buffer), true, "After writing two elements to a buffer of size 2, buffer should be full");
+    clear_buffer(buffer);
+    cr_assert_eq(is_buffer_full(buffer), false, "After clearing, buffer should not be full");
+    cr_assert_eq(get_free_space(buffer), 2, "After clearing, free space should be equal to buffer size");
+    destroy_ring_buffer(buffer);
+}
+
+Test(ring_buffer, test_is_buffer_empty) {
+    RingBuffer *buffer = create_ring_buffer(2);
+    cr_assert(is_buffer_empty(buffer), "After initialization, buffer should be empty");
+    write_ring_buffer(buffer, "test");
+    cr_assert_not(is_buffer_empty(buffer), "After writing an element, buffer should not be empty");
+    read_ring_buffer(buffer);
+    cr_assert(is_buffer_empty(buffer), "After reading the only element, buffer should be empty");
+    destroy_ring_buffer(buffer);
 }
