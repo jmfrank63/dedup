@@ -1,30 +1,52 @@
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
 #include "ring_buffer.h"
 
-RingBuffer* ring_buffer_init() {
-    RingBuffer* ring_buffer = malloc(sizeof(RingBuffer));
-    ring_buffer->write_index = 0;
-    ring_buffer->read_index = 0;
-    return ring_buffer;
+
+RingBuffer* createRingBuffer(int size) {
+    RingBuffer *buffer = (RingBuffer*)malloc(sizeof(RingBuffer));
+    buffer->size = size;
+    buffer->start = 0;
+    buffer->end = 0;
+    buffer->elems = (char**)calloc(size, sizeof(char*));
+    pthread_mutex_init(&buffer->mutex, NULL);
+    pthread_cond_init(&buffer->cond, NULL);
+    return buffer;
 }
 
-void ring_buffer_free(RingBuffer* ring_buffer) {
-    free(ring_buffer);
+void destroyRingBuffer(RingBuffer *buffer) {
+    pthread_mutex_destroy(&buffer->mutex);
+    pthread_cond_destroy(&buffer->cond);
+    free(buffer->elems);
+    free(buffer);
 }
 
-void ring_buffer_enqueue(RingBuffer* ring_buffer, char* path) {
-    size_t next_write_index = (ring_buffer->write_index + 1) % BUFFER_SIZE;
-    while (next_write_index == atomic_load(&ring_buffer->read_index)) {
-        // Buffer is full, wait
+void writeRingBuffer(RingBuffer *buffer, char *elem) {
+    pthread_mutex_lock(&buffer->mutex);
+    if (buffer->full) {
+        pthread_cond_wait(&buffer->cond, &buffer->mutex);  // wait for space
     }
-    ring_buffer->buffer[ring_buffer->write_index] = path;
-    atomic_store(&ring_buffer->write_index, next_write_index);
+    buffer->elems[buffer->end] = elem;
+    buffer->end = (buffer->end + 1) % buffer->size;
+    if (buffer->end == buffer->start) {
+        buffer->full = true;
+    }
+    pthread_cond_signal(&buffer->cond);  // signal new data available
+    pthread_mutex_unlock(&buffer->mutex);
 }
 
-char* ring_buffer_dequeue(RingBuffer* ring_buffer) {
-    while (ring_buffer->read_index == atomic_load(&ring_buffer->write_index)) {
-        // Buffer is empty, wait
+char* readRingBuffer(RingBuffer *buffer) {
+    pthread_mutex_lock(&buffer->mutex);
+    if (!buffer->full && buffer->start == buffer->end) {
+        pthread_cond_wait(&buffer->cond, &buffer->mutex);  // wait for data
     }
-    char* path = ring_buffer->buffer[ring_buffer->read_index];
-    atomic_store(&ring_buffer->read_index, (ring_buffer->read_index + 1) % BUFFER_SIZE);
-    return path;
+    char* elem = buffer->elems[buffer->start];
+    buffer->start = (buffer->start + 1) % buffer->size;
+    buffer->full = false;
+    pthread_cond_signal(&buffer->cond);  // signal new space available
+    pthread_mutex_unlock(&buffer->mutex);
+    return elem;
 }
+
