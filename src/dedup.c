@@ -3,8 +3,9 @@
 #include <linux/limits.h>
 #endif
 
-#include "../lib/ring_buffer.h"
 #include "blake3.h"
+#include "lib/ring_buffer.h"
+#include "shared/consts.h"
 #include <dirent.h>
 #include <errno.h>
 #include <pthread.h>
@@ -14,12 +15,6 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
-
-#ifdef _WIN32
-#define PATH_SEPARATOR "\\"
-#else
-#define PATH_SEPARATOR "/"
-#endif
 
 #define COLOR_DIRECTORY "\x1b[33m"
 #define COLOR_FILE "\x1b[94m"
@@ -40,6 +35,9 @@ typedef struct {
     void (*update)(void *, const void *, size_t);
     void (*finalize)(void *, uint8_t *, size_t);
 } HashAlgorithm;
+
+volatile int writing = 1;
+volatile int active_calls = 0;
 
 void blake3_init(void *state) { blake3_hasher_init((blake3_hasher *)state); }
 
@@ -77,8 +75,7 @@ void compute_hash(const char *path, HashAlgorithm *algorithm, uint8_t *hash,
 }
 
 void *list_directory(void *arg) {
-    // const char *dir_path, int *file_count, int *dir_count, RingBuffer
-    // *buffer) {
+    __sync_fetch_and_add(&active_calls, 1);
     ThreadArgs *args = (ThreadArgs *)arg;
     DIR *dir = opendir(args->path);
     if (dir == NULL) {
@@ -92,13 +89,6 @@ void *list_directory(void *arg) {
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
             continue;
 
-        char path[PATH_MAX];
-        if (strcmp(args->path, "/") == 0) {
-            snprintf(path, sizeof(path), "%s%s", args->path, entry->d_name);
-        } else {
-            snprintf(path, sizeof(path), "%s" PATH_SEPARATOR "%s", args->path,
-                     entry->d_name);
-        }
 #if defined(_DIRENT_HAVE_D_TYPE)
         if (entry->d_type == DT_DIR) {
 #else
@@ -106,6 +96,13 @@ void *list_directory(void *arg) {
         if (S_ISDIR(path_stat.st_mode)) {
 #endif
             // printf(COLOR_DIRECTORY "%s (directory)\n" COLOR_RESET, path);
+            char path[PATH_MAX];
+            if (strcmp(args->path, "/") == 0) {
+                snprintf(path, sizeof(path), "%s%s", args->path, entry->d_name);
+            } else {
+                snprintf(path, sizeof(path), "%s" PATH_SEPARATOR "%s",
+                         args->path, entry->d_name);
+            }
             ThreadArgs new_args = {.path = path,
                                    .file_count = args->file_count,
                                    .dir_count = args->dir_count + 1,
@@ -127,13 +124,14 @@ void *list_directory(void *arg) {
             // path,
             //        size);
             // printf(COLOR_FILE "Writing path: %s\n" COLOR_RESET, path);
-            write_ring_buffer(args->buffer, path);
+            write_ring_buffer(args->buffer, args->path, entry->d_name);
             *args->file_count += 1;
         }
     }
-
     closedir(dir);
-
+    if (__sync_sub_and_fetch(&active_calls, 1) == 0) {
+        writing = 0;
+    }
     return NULL;
 }
 
@@ -152,17 +150,14 @@ char *format_size(size_t size) {
 
 void *print_file_path(void *arg) {
     RingBuffer *buffer = (RingBuffer *)arg;
-    printf("Waiting for files to be added to the buffer of size %d\n", buffer->size);
-    fflush(stdout);
     struct timespec timeout;
     clock_gettime(CLOCK_REALTIME, &timeout);
-    timeout.tv_sec += 5; // Wait up to 5 seconds
+    timeout.tv_sec += 60; // Wait up to 60 seconds
 
     char *path;
-    while (1) {
-        printf("Free: %d\n", get_ring_buffer_free_space(buffer));
+    while (writing || !is_ring_buffer_empty(buffer)) {
         path = read_ring_buffer(buffer, &timeout);
-        printf(COLOR_FILE "Read path of FILE: %s\n" COLOR_RESET, path);
+        printf(COLOR_FILE "FILE: %s\n" COLOR_RESET, path);
         free_ring_buffer(buffer);
         if (path == NULL) {
             printf("Ring buffer is empty, exiting\n");
