@@ -18,11 +18,11 @@ typedef struct {
 RingBuffer* create_ring_buffer(int size);
 void destroy_ring_buffer(RingBuffer *buffer);
 void write_ring_buffer(RingBuffer *buffer, char *elem);
-char* read_ring_buffer(RingBuffer *buffer);
+char* read_ring_buffer(RingBuffer *buffer, const struct timespec* timeout);
 void free_ring_buffer(RingBuffer *buffer);
-int get_free_space(RingBuffer *buffer);
-bool is_buffer_full(RingBuffer *buffer);
-void clear_buffer(RingBuffer *buffer);
-bool is_buffer_empty(RingBuffer *buffer);
+int get_ring_buffer_free_space(RingBuffer *buffer);
+bool is_ring_buffer_full(RingBuffer *buffer);
+void clear_ring_buffer(RingBuffer *buffer);
+bool is_ring_buffer_empty(RingBuffer *buffer);
 
 #endif // RING_BUFFER_H

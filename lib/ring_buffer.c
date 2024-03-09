@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
+#include <time.h>
+#include <errno.h>
 #include "ring_buffer.h"
 
 
@@ -28,32 +30,24 @@ void write_ring_buffer(RingBuffer *buffer, char *elem) {
     if (buffer->full) {
         pthread_cond_wait(&buffer->cond, &buffer->mutex);  // wait for space
     }
+    printf("Write Entry Start: %d, End: %d\n", buffer->start, buffer->end);
     buffer->elems[buffer->end] = elem;
     buffer->end = (buffer->end + 1) % buffer->size;
     if (buffer->end == buffer->start) {
         buffer->full = true;
     }
+    printf("Write Exit Start: %d, End: %d\n", buffer->start, buffer->end);
     pthread_cond_signal(&buffer->cond);  // signal new data available
     pthread_mutex_unlock(&buffer->mutex);
 }
 
-// char* read_ring_buffer(RingBuffer *buffer) {
-//     pthread_mutex_lock(&buffer->mutex);
-//     if (!buffer->full && buffer->start == buffer->end) {
-//         pthread_cond_wait(&buffer->cond, &buffer->mutex);  // wait for data
-//     }
-//     char* elem = buffer->elems[buffer->start];
-//     buffer->start = (buffer->start + 1) % buffer->size;
-//     buffer->full = false;
-//     pthread_cond_signal(&buffer->cond);  // signal new space available
-//     pthread_mutex_unlock(&buffer->mutex);
-//     return elem;
-// }
-
-char* read_ring_buffer(RingBuffer *buffer) {
+char* read_ring_buffer(RingBuffer *buffer, const struct timespec* timeout) {
     pthread_mutex_lock(&buffer->mutex);
-    if (!buffer->full && buffer->start == buffer->end) {
-        pthread_cond_wait(&buffer->cond, &buffer->mutex);  // wait for data
+    if (!buffer->full && (buffer->start == buffer->end)) {
+        if (pthread_cond_timedwait(&buffer->cond, &buffer->mutex, timeout) == ETIMEDOUT) {
+            pthread_mutex_unlock(&buffer->mutex);
+            return NULL;
+        }
     }
     char* elem = buffer->elems[buffer->start];
     pthread_mutex_unlock(&buffer->mutex);
@@ -62,27 +56,33 @@ char* read_ring_buffer(RingBuffer *buffer) {
 
 void free_ring_buffer(RingBuffer *buffer) {
     pthread_mutex_lock(&buffer->mutex);
+    printf("Read Entry Start: %d, End: %d\n", buffer->start, buffer->end);
+    if (!buffer->full && (buffer->start == buffer->end)) {
+        pthread_mutex_unlock(&buffer->mutex);
+        return;
+    }
     buffer->start = (buffer->start + 1) % buffer->size;
     buffer->full = false;
+    printf("Read Exit Start: %d, End: %d\n", buffer->start, buffer->end);
     pthread_cond_signal(&buffer->cond);  // signal new space available
     pthread_mutex_unlock(&buffer->mutex);
 }
 
-int get_free_space(RingBuffer *buffer) {
+int get_ring_buffer_free_space(RingBuffer *buffer) {
     pthread_mutex_lock(&buffer->mutex);
     int free_space = buffer->full ? 0 : (buffer->end >= buffer->start ? buffer->size - buffer->end + buffer->start : buffer->start - buffer->end);
     pthread_mutex_unlock(&buffer->mutex);
     return free_space;
 }
 
-bool is_buffer_full(RingBuffer *buffer) {
+bool is_ring_buffer_full(RingBuffer *buffer) {
     pthread_mutex_lock(&buffer->mutex);
     bool full = buffer->full;
     pthread_mutex_unlock(&buffer->mutex);
     return full;
 }
 
-void clear_buffer(RingBuffer *buffer) {
+void clear_ring_buffer(RingBuffer *buffer) {
     pthread_mutex_lock(&buffer->mutex);
     buffer->start = 0;
     buffer->end = 0;
@@ -91,10 +91,9 @@ void clear_buffer(RingBuffer *buffer) {
     pthread_mutex_unlock(&buffer->mutex);
 }
 
-bool is_buffer_empty(RingBuffer *buffer) {
+bool is_ring_buffer_empty(RingBuffer *buffer) {
     pthread_mutex_lock(&buffer->mutex);
     bool empty = (!buffer->full && (buffer->start == buffer->end));
     pthread_mutex_unlock(&buffer->mutex);
     return empty;
 }
-
