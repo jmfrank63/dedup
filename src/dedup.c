@@ -1,5 +1,6 @@
 #ifndef _DEFAULT_SOURCE
 #define _DEFAULT_SOURCE
+#include <linux/limits.h>
 #endif
 
 #include "blake3.h"
@@ -12,6 +13,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include "../lib/ring_buffer.h"
 
 #ifdef _WIN32
 #define PATH_SEPARATOR "\\"
@@ -24,6 +26,15 @@
 #define COLOR_RESET "\x1b[0m"
 
 #define MAX_THREADS 2
+#define BUFFER_SIZE 4096
+
+
+typedef struct {
+    char *path;
+    int *file_count;
+    int *dir_count;
+    RingBuffer *buffer;
+} ThreadArgs;
 
 typedef struct {
     void (*init)(void *);
@@ -66,22 +77,12 @@ void compute_hash(const char *path, HashAlgorithm *algorithm, uint8_t *hash,
     algorithm->finalize(&hasher, hash, BLAKE3_OUT_LEN);
 }
 
-typedef struct {
-    char path[1024];
-    int file_count;
-} ThreadArgs;
 
-sem_t thread_limiter;
+void *list_directory(void *arg) {
+    // const char *dir_path, int *file_count, int *dir_count, RingBuffer *buffer) {
+    ThreadArgs *args = (ThreadArgs *)arg;
 
-pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-int total_file_count = 0;
-
-void *list_directory(void *args) {
-
-    ThreadArgs *thread_args = (ThreadArgs *)args;
-    char *dir_path = thread_args->path;
-
-    DIR *dir = opendir(dir_path);
+    DIR *dir = opendir(args->path);
     if (dir == NULL) {
         perror("Failed to open directory");
         return NULL;
@@ -93,11 +94,11 @@ void *list_directory(void *args) {
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
             continue;
 
-        char path[1024];
-        if (strcmp(dir_path, "/") == 0) {
-            snprintf(path, sizeof(path), "%s%s", dir_path, entry->d_name);
+        char path[PATH_MAX];
+        if (strcmp(args->path, "/") == 0) {
+            snprintf(path, sizeof(path), "%s%s", args->path, entry->d_name);
         } else {
-            snprintf(path, sizeof(path), "%s" PATH_SEPARATOR "%s", dir_path,
+            snprintf(path, sizeof(path), "%s" PATH_SEPARATOR "%s", args->path,
                      entry->d_name);
         }
 
@@ -108,57 +109,29 @@ void *list_directory(void *args) {
         if (S_ISDIR(path_stat.st_mode)) {
 #endif
             printf(COLOR_DIRECTORY "%s (directory)\n" COLOR_RESET, path);
-
-            ThreadArgs newArgs;
-            strcpy(newArgs.path, path);
-            newArgs.file_count = 0;
-
-            if (sem_trywait(&thread_limiter) == 0) {
-                // If a thread is available, use it
-                pthread_t thread;
-                ThreadArgs *threadArgs = malloc(sizeof(ThreadArgs));
-                *threadArgs = newArgs;
-
-                if (pthread_create(&thread, NULL, list_directory, threadArgs) !=
-                    0) {
-                    perror("Failed to create thread");
-                }
-
-                pthread_join(thread, NULL);
-                thread_args->file_count += threadArgs->file_count;
-                free(threadArgs);
-
-                sem_post(&thread_limiter);
-            } else {
-                // If no threads are available, continue in the current thread
-                list_directory(&newArgs);
-                thread_args->file_count += newArgs.file_count;
-            }
+            args->path = path;
+            list_directory(args);
+            *args->dir_count += 1;
         } else {
-
             // Calculate and print the hash of the file
-            uint8_t hash[BLAKE3_OUT_LEN];
-            size_t size = 0;
-            compute_hash(path, &blake3_algorithm, hash, &size);
+            // uint8_t hash[BLAKE3_OUT_LEN];
+            // size_t size = 0;
+            // compute_hash(path, &blake3_algorithm, hash, &size);
 
-            char hash_str[BLAKE3_OUT_LEN * 2 +
-                          1]; // Each byte will be 2 characters in hex, plus
-                              // null terminator
-            for (size_t i = 0; i < BLAKE3_OUT_LEN; i++) {
-                sprintf(&hash_str[i * 2], "%02x", hash[i]);
-            }
-
-            printf(COLOR_FILE "%s %s (size %ld)\n" COLOR_RESET, hash_str, path,
-                   size);
-            thread_args->file_count++;
+            // char hash_str[BLAKE3_OUT_LEN * 2 +
+            //               1]; // Each byte will be 2 characters in hex, plus
+            //                   // null terminator
+            // for (size_t i = 0; i < BLAKE3_OUT_LEN; i++) {
+            //     sprintf(&hash_str[i * 2], "%02x", hash[i]);
+            // }
+            // printf(COLOR_FILE "%s %s (size %ld)\n" COLOR_RESET, hash_str, path,
+            //        size);
+            printf(COLOR_FILE "%s\n" COLOR_RESET, path);
+            *args->file_count += 1;
         }
     }
 
     closedir(dir);
-
-    pthread_mutex_lock(&mutex);
-    total_file_count += thread_args->file_count;
-    pthread_mutex_unlock(&mutex);
 
     return NULL;
 }
@@ -176,28 +149,60 @@ char *format_size(size_t size) {
     return result;
 }
 
+void *print_file_path(void *arg) {
+    RingBuffer *buffer = (RingBuffer *)arg;
+    char *file_path;
+
+    while ((file_path = read_ring_buffer(buffer)) != NULL) {
+        printf("%s\n", file_path);
+        free_ring_buffer(buffer);
+    }
+
+    return NULL;
+}
+
+
 // TODO: For each file, calculate the hash
 // TODO: Build a hash table
 // TODO: Find duplicates and empty files
 // TODO: Print the results
 int main(int argc, char *argv[]) {
-
+    int file_count = 0;
+    int dir_count = 0;
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <directory>\n", argv[0]);
         return 1;
     }
 
-    ThreadArgs args;
-    strcpy(args.path, argv[1]);
-    args.file_count = 0;
+    // RingBuffer *buffer = create_ring_buffer(BUFFER_SIZE);
+    // list_directory(argv[1], &file_count, &dir_count, buffer);
+    // printf("Total file count: %d, total dir count %d\n", file_count, dir_count);
+    // return 0;
 
-    sem_init(&thread_limiter, 0, MAX_THREADS);
+    // Create and initialize the ring buffer
+    RingBuffer *buffer = create_ring_buffer(BUFFER_SIZE);
 
-    list_directory(&args);
+    // Create the directory listing thread
+    pthread_t list_dir_thread;
+    ThreadArgs list_dir_args = { .path = argv[1], .file_count = &file_count, .dir_count = &dir_count, .buffer = buffer };
+    if (pthread_create(&list_dir_thread, NULL, list_directory, &list_dir_args) != 0) {
+        perror("Failed to create directory listing thread");
+        return 1;
+    }
 
-    sem_destroy(&thread_limiter);
+    // Create the print thread
+    pthread_t print_thread;
+    if (pthread_create(&print_thread, NULL, print_file_path, buffer) != 0) {
+        perror("Failed to create print thread");
+        return 1;
+    }
 
-    printf("Total file count: %d\n", total_file_count);
+    // Wait for the threads to finish
+    pthread_join(list_dir_thread, NULL);
+    pthread_join(print_thread, NULL);
+
+    // Don't forget to free the buffer when you're done with it
+    destroy_ring_buffer(buffer);
 
     return 0;
 }

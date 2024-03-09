@@ -22,6 +22,10 @@ clean_all:
 
 all: dedup tests
 
+run: dedup
+	@echo "Running dedup..." && \
+	./dedup $(ARG)
+
 run_tests: tests
 	@echo "Running ring_buffer tests..." && \
     LD_LIBRARY_PATH=$(LD_LIBRARY_PATH):submodules/criterion/build/src ./test_ring_buffer

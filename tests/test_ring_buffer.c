@@ -24,6 +24,7 @@ void *read_from_buffer(void *arg) {
     }
     pthread_mutex_unlock(&buffer->mutex);
     char *elem = read_ring_buffer(buffer);
+    free_ring_buffer(buffer);
     free(elem); // free the element after reading it
     return NULL;
 }
@@ -103,7 +104,7 @@ Test(ring_buffer, read_single_element) {
 
     cr_assert_str_eq(read_ring_buffer(buffer), "test1",
                      "First element was not read correctly");
-
+    free_ring_buffer(buffer);
     cr_assert_not(buffer->full,
                   "Buffer should not be marked full after reading one element");
 
@@ -116,6 +117,7 @@ Test(ring_buffer, write_after_read) {
     write_ring_buffer(buffer, "test1");
     write_ring_buffer(buffer, "test2");
     read_ring_buffer(buffer);
+    free_ring_buffer(buffer);
     write_ring_buffer(buffer, "test3");
 
     cr_assert(buffer->full,
@@ -130,11 +132,14 @@ Test(ring_buffer, read_second_element) {
     write_ring_buffer(buffer, "test1");
     write_ring_buffer(buffer, "test2");
     read_ring_buffer(buffer);
+    free_ring_buffer(buffer);
     write_ring_buffer(buffer, "test3");
     cr_assert_str_eq(read_ring_buffer(buffer), "test2",
                      "Second element was not read correctly");
+    free_ring_buffer(buffer);
     cr_assert_str_eq(read_ring_buffer(buffer), "test3",
                      "Third element was not read correctly");
+    free_ring_buffer(buffer);
     destroy_ring_buffer(buffer);
 }
 
@@ -165,6 +170,7 @@ Test(ring_buffer, buffer_not_full_after_read) {
     write_ring_buffer(buffer, "test1");
     write_ring_buffer(buffer, "test2");
     read_ring_buffer(buffer);
+    free_ring_buffer(buffer);
 
     cr_assert_not(
         buffer->full,
@@ -179,6 +185,7 @@ Test(ring_buffer, buffer_full_after_write_read_write) {
     write_ring_buffer(buffer, "test1");
     write_ring_buffer(buffer, "test2");
     read_ring_buffer(buffer);
+    free_ring_buffer(buffer);
     write_ring_buffer(buffer, "test3");
 
     cr_assert(buffer->full, "Buffer should be marked as full after writing, "
@@ -226,6 +233,7 @@ Test(ring_buffer, test_is_buffer_empty) {
     write_ring_buffer(buffer, "test");
     cr_assert_not(is_buffer_empty(buffer), "After writing an element, buffer should not be empty");
     read_ring_buffer(buffer);
+    free_ring_buffer(buffer);
     cr_assert(is_buffer_empty(buffer), "After reading the only element, buffer should be empty");
     destroy_ring_buffer(buffer);
 }

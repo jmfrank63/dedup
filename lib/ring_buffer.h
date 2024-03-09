@@ -19,6 +19,7 @@ RingBuffer* create_ring_buffer(int size);
 void destroy_ring_buffer(RingBuffer *buffer);
 void write_ring_buffer(RingBuffer *buffer, char *elem);
 char* read_ring_buffer(RingBuffer *buffer);
+void free_ring_buffer(RingBuffer *buffer);
 int get_free_space(RingBuffer *buffer);
 bool is_buffer_full(RingBuffer *buffer);
 void clear_buffer(RingBuffer *buffer);

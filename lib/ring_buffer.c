@@ -37,17 +37,35 @@ void write_ring_buffer(RingBuffer *buffer, char *elem) {
     pthread_mutex_unlock(&buffer->mutex);
 }
 
+// char* read_ring_buffer(RingBuffer *buffer) {
+//     pthread_mutex_lock(&buffer->mutex);
+//     if (!buffer->full && buffer->start == buffer->end) {
+//         pthread_cond_wait(&buffer->cond, &buffer->mutex);  // wait for data
+//     }
+//     char* elem = buffer->elems[buffer->start];
+//     buffer->start = (buffer->start + 1) % buffer->size;
+//     buffer->full = false;
+//     pthread_cond_signal(&buffer->cond);  // signal new space available
+//     pthread_mutex_unlock(&buffer->mutex);
+//     return elem;
+// }
+
 char* read_ring_buffer(RingBuffer *buffer) {
     pthread_mutex_lock(&buffer->mutex);
     if (!buffer->full && buffer->start == buffer->end) {
         pthread_cond_wait(&buffer->cond, &buffer->mutex);  // wait for data
     }
     char* elem = buffer->elems[buffer->start];
+    pthread_mutex_unlock(&buffer->mutex);
+    return elem;
+}
+
+void free_ring_buffer(RingBuffer *buffer) {
+    pthread_mutex_lock(&buffer->mutex);
     buffer->start = (buffer->start + 1) % buffer->size;
     buffer->full = false;
     pthread_cond_signal(&buffer->cond);  // signal new space available
     pthread_mutex_unlock(&buffer->mutex);
-    return elem;
 }
 
 int get_free_space(RingBuffer *buffer) {
