@@ -34,9 +34,10 @@ void *read_from_buffer(void *arg) {
     }
     pthread_mutex_unlock(&buffer->mutex);
     char *elem = read_ring_buffer(buffer, &timeout);
+    char *elem_copy = strdup(elem);
     free_ring_buffer(buffer);
-    free(elem); // free the element after reading it
-    return NULL;
+    // free(elem); // free the element after reading it
+    return elem_copy;
 }
 
 TestSuite(ring_buffer, .init = setup_timeout);
@@ -49,8 +50,11 @@ Test(ring_buffer, write_blocks_when_full) {
     pthread_create(&read_thread, NULL, read_from_buffer, buffer);
 
     pthread_join(write_thread, NULL);
-    pthread_join(read_thread, NULL);
+    char *elem = NULL;
+    pthread_join(read_thread, (void **)&elem);
 
+    cr_assert_str_eq(elem, "test1", "First element was not read correctly: %s", elem);
+    free(elem);
     cr_assert_eq(buffer->start, 1,
                  "Buffer start was not updated correctly, expected 1 got %d",
                  buffer->start);
@@ -75,10 +79,10 @@ Test(ring_buffer, write_blocks_when_full) {
 Test(ring_buffer, create_and_destroy) {
     RingBuffer *buffer = create_ring_buffer(2);
     cr_assert_not_null(buffer, "Buffer was not created");
-    cr_assert_null(buffer->elems[0],
-                   "Buffer elements should be initialized to NULL");
-    cr_assert_null(buffer->elems[1],
-                   "Buffer elements should be initialized to NULL");
+    cr_assert_not_null(buffer->elems[0],
+                   "Memory for buffer elements was not allocated");
+    cr_assert_not_null(buffer->elems[1],
+                   "Memory for buffer elements was not allocated");
     destroy_ring_buffer(buffer);
 }
 

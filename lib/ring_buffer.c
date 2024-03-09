@@ -1,7 +1,9 @@
+#include <linux/limits.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
+#include <string.h>
 #include <time.h>
 #include <errno.h>
 #include "ring_buffer.h"
@@ -12,7 +14,30 @@ RingBuffer* create_ring_buffer(int size) {
     buffer->size = size;
     buffer->start = 0;
     buffer->end = 0;
-    buffer->elems = (char**)calloc(size, sizeof(char*));
+
+    // Try to allocate one big chunk of memory for the 2D array
+    buffer->elems = malloc(size * sizeof(char*) + size * PATH_MAX * sizeof(char));
+    if (buffer->elems != NULL) {
+        char* rowStart = (char*)(buffer->elems + size);
+        for (int i = 0; i < size; i++) {
+            buffer->elems[i] = rowStart + i * PATH_MAX;
+        }
+    } else {
+        // If that fails, fall back to allocating each row separately
+        buffer->elems = malloc(size * sizeof(char*));
+        if (buffer->elems != NULL) {
+            for (int i = 0; i < size; i++) {
+                buffer->elems[i] = malloc(PATH_MAX * sizeof(char));
+                if (buffer->elems[i] == NULL) {
+                    perror("Failed to allocate memory for buffer->elems");
+                    exit(1);
+                }
+            }
+        } else {
+            perror("Failed to allocate memory for buffer->elems indices");
+        }
+    }
+
     pthread_mutex_init(&buffer->mutex, NULL);
     pthread_cond_init(&buffer->cond, NULL);
     return buffer;
@@ -30,13 +55,17 @@ void write_ring_buffer(RingBuffer *buffer, char *elem) {
     if (buffer->full) {
         pthread_cond_wait(&buffer->cond, &buffer->mutex);  // wait for space
     }
-    printf("Write Entry Start: %d, End: %d\n", buffer->start, buffer->end);
-    buffer->elems[buffer->end] = elem;
+    // printf("Write Entry Start: %d, End: %d\n", buffer->start, buffer->end);
+
+    // Copy elem into the 2D array
+    strncpy(buffer->elems[buffer->end], elem, PATH_MAX); // TODO: pass in path and entry and do the snprintf here, then return a point to the buffer
+
+
     buffer->end = (buffer->end + 1) % buffer->size;
     if (buffer->end == buffer->start) {
         buffer->full = true;
     }
-    printf("Write Exit Start: %d, End: %d\n", buffer->start, buffer->end);
+    // printf("Write Exit Start: %d, End: %d\n", buffer->start, buffer->end);
     pthread_cond_signal(&buffer->cond);  // signal new data available
     pthread_mutex_unlock(&buffer->mutex);
 }
@@ -56,14 +85,14 @@ char* read_ring_buffer(RingBuffer *buffer, const struct timespec* timeout) {
 
 void free_ring_buffer(RingBuffer *buffer) {
     pthread_mutex_lock(&buffer->mutex);
-    printf("Read Entry Start: %d, End: %d\n", buffer->start, buffer->end);
+    // printf("Read Entry Start: %d, End: %d\n", buffer->start, buffer->end);
     if (!buffer->full && (buffer->start == buffer->end)) {
         pthread_mutex_unlock(&buffer->mutex);
         return;
     }
     buffer->start = (buffer->start + 1) % buffer->size;
     buffer->full = false;
-    printf("Read Exit Start: %d, End: %d\n", buffer->start, buffer->end);
+    // printf("Read Exit Start: %d, End: %d\n", buffer->start, buffer->end);
     pthread_cond_signal(&buffer->cond);  // signal new space available
     pthread_mutex_unlock(&buffer->mutex);
 }
