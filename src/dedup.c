@@ -207,14 +207,9 @@ void *print_file_path(void *arg) {
             for (size_t i = 0; i < BLAKE3_OUT_LEN; i++) {
                 sprintf(&hash_str[i * 2], "%02x", hash[i]);
             }
-            printf(COLOR_FILE "%s %s (size %ld)\n" COLOR_RESET, hash_str, path,
-                   size);
+            // printf(COLOR_FILE "%s %s (size %ld)\n" COLOR_RESET, hash_str, path, size);
         }
         free_ring_buffer(buffer);
-        if (path == NULL) {
-            printf("Ring buffer is empty, exiting\n");
-            break;
-        }
     }
     return NULL;
 }
@@ -222,6 +217,9 @@ void *print_file_path(void *arg) {
 // TODO: Build a hash table
 // TODO: Find duplicates and empty files
 // TODO: Print the results
+
+#define NUM_WORKERS 64
+
 int main(int argc, char *argv[]) {
     unsigned file_count = 0;
     unsigned dir_count = 0;
@@ -245,17 +243,23 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    // Create the print thread
-    pthread_t print_thread;
-    if (pthread_create(&print_thread, NULL, print_file_path, buffer) != 0) {
-        perror("Failed to create print thread");
-        return 1;
+    // Create the worker threads
+    pthread_t workers[NUM_WORKERS];
+    for (int i = 0; i < NUM_WORKERS; i++) {
+        if (pthread_create(&workers[i], NULL, print_file_path, buffer) != 0) {
+            perror("Failed to create worker thread");
+            return 1;
+        }
     }
 
-    // Wait for the threads to finish
+    // Wait for the directory listing thread to finish
     pthread_join(list_dir_thread, NULL);
     writing = 0;
-    pthread_join(print_thread, NULL);
+
+    // Wait for the worker threads to finish
+    for (int i = 0; i < NUM_WORKERS; i++) {
+        pthread_join(workers[i], NULL);
+    }
 
     // Don't forget to free the buffer when you're done with it
     destroy_ring_buffer(buffer);

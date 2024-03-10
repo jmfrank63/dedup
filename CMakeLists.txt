@@ -13,6 +13,6 @@ link_directories(submodules/criterion/build/src)
 
 # Add an executable
 add_executable(dedup src/dedup.c)
-add_executable(test_ring_buffer tests/test_ring_buffer.c lib/ring_buffer.c)
+add_executable(test_ring_buffer tests/test_ring_buffer.c src/lib/ring_buffer.c)
 
 target_link_libraries(test_ring_buffer criterion)

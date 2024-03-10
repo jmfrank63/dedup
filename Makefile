@@ -1,5 +1,9 @@
 CFLAGS=-Wall -Wextra -Werror -std=c11 -pedantic \
-	   -ggdb -mavx -mavx2 -msse4.1 -mavx512f -mavx512vl
+	   -ggdb -mavx -mavx2 -msse4.1 \
+	   -DBLAKE3_NO_AVX512
+CFLAGS_RELEASE=-Wall -Wextra -Werror -std=c11 -pedantic \
+       -O3 -mavx -mavx2 -msse4.1 \
+	   -DBLAKE3_NO_AVX512
 LIBS=-Lsubmodules/criterion/build/src
 INCLUDES=-Isubmodules/BLAKE3/c -Isubmodules/criterion/include
 
@@ -7,12 +11,14 @@ SRC_FILES=src/dedup.c
 LIB_SRC_FILES=src/lib/ring_buffer.c
 MODULE_SRC_FILES=submodules/BLAKE3/c/blake3.c submodules/BLAKE3/c/blake3_dispatch.c \
 	submodules/BLAKE3/c/blake3_portable.c submodules/BLAKE3/c/blake3_sse2.c \
-	submodules/BLAKE3/c/blake3_sse41.c submodules/BLAKE3/c/blake3_avx2.c \
-	submodules/BLAKE3/c/blake3_avx512.c
+	submodules/BLAKE3/c/blake3_sse41.c submodules/BLAKE3/c/blake3_avx2.c
 TEST_SRC_FILES=tests/test_ring_buffer.c
 
 dedup: $(SRC_FILES) $(LIB_SRC_FILES) $(MODULE_SRC_FILES)
 	@$(CC) $(CFLAGS) $(SRC_FILES) $(LIB_SRC_FILES) $(MODULE_SRC_FILES) -o dedup $(INCLUDES) $(LIBS)
+
+dedup_release: $(SRC_FILES) $(LIB_SRC_FILES) $(MODULE_SRC_FILES)
+	@$(CC) $(CFLAGS_RELEASE) $(SRC_FILES) $(LIB_SRC_FILES) $(MODULE_SRC_FILES) -o dedup $(INCLUDES) $(LIBS)
 
 clean:
 	@rm -f dedup
@@ -35,6 +41,10 @@ criterion:
 	@if [ ! -d "submodules/criterion/build" ]; then \
         cd submodules/criterion && meson build && cd build && ninja; \
     fi
+
+.PHONY: memcheck
+memcheck: dedup
+	valgrind --leak-check=full ./dedup $(ARG)
 
 tests: $(TEST_SRC_FILES) $(LIB_SRC_FILES) criterion
 	@$(CC) $(CFLAGS) \
