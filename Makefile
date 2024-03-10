@@ -8,7 +8,7 @@ LIBS=-Lsubmodules/criterion/build/src
 INCLUDES=-Isubmodules/BLAKE3/c -Isubmodules/criterion/include -Isubmodules/uthash/src
 
 SRC_FILES=src/dedup.c
-LIB_SRC_FILES=src/lib/ring_buffer.c src/lib/hashing.c
+LIB_SRC_FILES=src/lib/ring_buffer.c src/lib/hashing.c src/lib/hash_table.c
 MODULE_SRC_FILES=submodules/BLAKE3/c/blake3.c submodules/BLAKE3/c/blake3_dispatch.c \
 	submodules/BLAKE3/c/blake3_portable.c submodules/BLAKE3/c/blake3_sse2.c \
 	submodules/BLAKE3/c/blake3_sse41.c submodules/BLAKE3/c/blake3_avx2.c
@@ -46,9 +46,10 @@ criterion:
 memcheck: dedup
 	valgrind --leak-check=full ./dedup $(ARG)
 
-tests: $(TEST_SRC_FILES) $(LIB_SRC_FILES) criterion
+tests: $(TEST_SRC_FILES) $(LIB_SRC_FILES) $(MODULE_SRC_FILES) criterion
 	@$(CC) $(CFLAGS) \
 	$(LIB_SRC_FILES) \
+	$(MODULE_SRC_FILES) \
     $(INCLUDES) $(LIBS) -lcriterion \
 	tests/test_ring_buffer.c \
     -o test_ring_buffer

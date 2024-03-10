@@ -33,11 +33,9 @@ void *read_from_buffer(void *arg) {
                           &buffer->mutex); // wait for buffer to be full
     }
     pthread_mutex_unlock(&buffer->mutex);
-    char *elem = read_ring_buffer(buffer, &timeout);
-    char *elem_copy = strdup(elem);
-    free_ring_buffer(buffer);
-    // free(elem); // free the element after reading it
-    return elem_copy;
+    char *elem = read_and_free_ring_buffer(buffer, &timeout);
+    cr_assert_str_eq(elem, "path/test1", "First element was not read correctly, expected 'path/test1', got %s", elem);
+    return NULL;
 }
 
 TestSuite(ring_buffer, .init = setup_timeout);
@@ -50,11 +48,8 @@ Test(ring_buffer, write_blocks_when_full) {
     pthread_create(&read_thread, NULL, read_from_buffer, buffer);
 
     pthread_join(write_thread, NULL);
-    char *elem = NULL;
-    pthread_join(read_thread, (void **)&elem);
+    pthread_join(read_thread, NULL);
 
-    cr_assert_str_eq(elem, "path/test1", "First element was not read correctly, expected 'path/test1', got %s", elem);
-    free(elem);
     cr_assert_eq(buffer->start, 1,
                  "Buffer start was not updated correctly, expected 1 got %d",
                  buffer->start);
@@ -118,10 +113,10 @@ Test(ring_buffer, read_single_element) {
     write_ring_buffer(buffer, "path", "test1");
     write_ring_buffer(buffer, "path", "test2");
 
-    char *path = read_ring_buffer(buffer, &timeout);
+    char *path = read_and_free_ring_buffer(buffer, &timeout);
     cr_assert_str_eq(path, "path/test1",
                      "First element was not read correctly, , expected 'path/test1' got %s", path);
-    free_ring_buffer(buffer);
+    // free_ring_buffer(buffer);
     cr_assert_not(buffer->full,
                   "Buffer should not be marked full after reading one element");
 
@@ -133,8 +128,8 @@ Test(ring_buffer, write_after_read) {
 
     write_ring_buffer(buffer, "path", "test1");
     write_ring_buffer(buffer, "path", "test2");
-    read_ring_buffer(buffer, &timeout);
-    free_ring_buffer(buffer);
+    read_and_free_ring_buffer(buffer, &timeout);
+    // free_ring_buffer(buffer);
     write_ring_buffer(buffer, "path", "test3");
 
     cr_assert(buffer->full,
@@ -148,17 +143,17 @@ Test(ring_buffer, read_second_element) {
 
     write_ring_buffer(buffer, "path", "test1");
     write_ring_buffer(buffer, "path", "test2");
-    read_ring_buffer(buffer, &timeout);
-    free_ring_buffer(buffer);
+    read_and_free_ring_buffer(buffer, &timeout);
+    // free_ring_buffer(buffer);
     write_ring_buffer(buffer, "path", "test3");
-    char *path = read_ring_buffer(buffer, &timeout);
+    char *path = read_and_free_ring_buffer(buffer, &timeout);
     cr_assert_str_eq(path, "path/test2",
                      "Second element was not read correctly, expected 'path/test2' got %s", path);
-    free_ring_buffer(buffer);
-    path = read_ring_buffer(buffer, &timeout);
+    // free_ring_buffer(buffer);
+    path = read_and_free_ring_buffer(buffer, &timeout);
     cr_assert_str_eq(path, "path/test3",
                      "Third element was not read correctly, expected 'path/test3' got %s", path);
-    free_ring_buffer(buffer);
+    // free_ring_buffer(buffer);
     destroy_ring_buffer(buffer);
 }
 
@@ -188,8 +183,8 @@ Test(ring_buffer, buffer_not_full_after_read) {
 
     write_ring_buffer(buffer, "path", "test1");
     write_ring_buffer(buffer, "path", "test2");
-    read_ring_buffer(buffer, &timeout);
-    free_ring_buffer(buffer);
+    read_and_free_ring_buffer(buffer, &timeout);
+    // free_ring_buffer(buffer);
 
     cr_assert_not(
         buffer->full,
@@ -203,8 +198,8 @@ Test(ring_buffer, buffer_full_after_write_read_write) {
 
     write_ring_buffer(buffer, "path", "test1");
     write_ring_buffer(buffer, "path", "test2");
-    read_ring_buffer(buffer, &timeout);
-    free_ring_buffer(buffer);
+    read_and_free_ring_buffer(buffer, &timeout);
+    // free_ring_buffer(buffer);
     write_ring_buffer(buffer, "path", "test3");
 
     cr_assert(buffer->full, "Buffer should be marked as full after writing, "
@@ -251,8 +246,8 @@ Test(ring_buffer, test_is_buffer_empty) {
     cr_assert(is_ring_buffer_empty(buffer), "After initialization, buffer should be empty");
     write_ring_buffer(buffer, "path", "test");
     cr_assert_not(is_ring_buffer_empty(buffer), "After writing an element, buffer should not be empty");
-    read_ring_buffer(buffer, &timeout);
-    free_ring_buffer(buffer);
+    read_and_free_ring_buffer(buffer, &timeout);
+    // free_ring_buffer(buffer);
     cr_assert(is_ring_buffer_empty(buffer), "After reading the only element, buffer should be empty");
     destroy_ring_buffer(buffer);
 }

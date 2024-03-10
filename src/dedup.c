@@ -1,9 +1,11 @@
 #ifndef _DEFAULT_SOURCE
 #define _DEFAULT_SOURCE
 #include "blake3.h"
+#include "lib/hash_table.h"
 #include "lib/hashing.h"
 #include <linux/limits.h>
 #include <stdint.h>
+#include <time.h>
 #endif
 
 #include "lib/ring_buffer.h"
@@ -24,7 +26,7 @@
 #define COLOR_FILE "\x1b[94m"
 #define COLOR_RESET "\x1b[0m"
 
-#define MAX_THREADS 2
+#define NUM_WORKERS 24
 #define BUFFER_SIZE 4096
 
 typedef struct {
@@ -60,7 +62,8 @@ void *list_directory(void *arg) {
         }
 
         if (stat(path, &path_stat) != 0) {
-            perror("Failed to stat file");
+            fprintf(stderr, "File: %s ", path);
+            perror("Error");
             continue;
         }
 
@@ -101,14 +104,16 @@ void *print_file_path(void *arg) {
     RingBuffer *buffer = (RingBuffer *)arg;
     struct timespec timeout;
     clock_gettime(CLOCK_REALTIME, &timeout);
-    timeout.tv_sec += 60; // Wait up to 60 seconds
+    timeout.tv_nsec += 50000000; // Wait up to 50 mseconds
 
     char *path;
-    while (writing || !is_ring_buffer_empty(buffer)) {
+    while (1) {
         if (is_ring_buffer_empty(buffer)) {
+            if (writing == 0) 
+                break;
             continue;
         }
-        path = read_ring_buffer(buffer, &timeout);
+        path = read_and_free_ring_buffer(buffer, &timeout);
 
         // Calculate and print the hash of the file
         uint8_t hash[BLAKE3_OUT_LEN];
@@ -120,19 +125,16 @@ void *print_file_path(void *arg) {
             for (size_t i = 0; i < BLAKE3_OUT_LEN; i++) {
                 sprintf(&hash_str[i * 2], "%02x", hash[i]);
             }
-            // printf(COLOR_FILE "%s %s (size %ld)\n" COLOR_RESET, hash_str,
-            // path, size);
+            // printf(COLOR_FILE "%s %s (size %ld)\n" COLOR_RESET, hash_str, path,
+            //        size);
+
+            // Add the file path and hash to the hashmap
+            add_new_hash(hash_str, path);
         }
-        free_ring_buffer(buffer);
+        // free_ring_buffer(buffer);
     }
     return NULL;
 }
-
-// TODO: Build a hash table
-// TODO: Find duplicates and empty files
-// TODO: Print the results
-
-#define NUM_WORKERS 64
 
 int main(int argc, char *argv[]) {
     unsigned file_count = 0;
@@ -169,16 +171,14 @@ int main(int argc, char *argv[]) {
     // Wait for the directory listing thread to finish
     pthread_join(list_dir_thread, NULL);
     writing = 0;
-
     // Wait for the worker threads to finish
     for (int i = 0; i < NUM_WORKERS; i++) {
         pthread_join(workers[i], NULL);
     }
+    print_duplicates();
+    printf("Found %d files and %d directories\n", file_count, dir_count);
 
     // Don't forget to free the buffer when you're done with it
     destroy_ring_buffer(buffer);
-
-    printf("Found %d files and %d directories\n", file_count, dir_count);
-
     return 0;
 }
