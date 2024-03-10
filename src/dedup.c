@@ -27,8 +27,8 @@
 
 typedef struct {
     char *path;
-    int *file_count;
-    int *dir_count;
+    unsigned *file_count;
+    unsigned *dir_count;
     RingBuffer *buffer;
 } ThreadArgs;
 
@@ -78,21 +78,9 @@ HashAlgorithm blake3_algorithm = {
 int compute_hash(const char *path, HashAlgorithm *algorithm, uint8_t *hash,
                  size_t *total) {
 
-    struct stat st;
-    if (stat(path, &st) != 0) {
-        // Ignore stat errors
-        return -1;
-    }
-
-    // Check if the file is a regular file
-    if (!S_ISREG(st.st_mode)) {
-        // Ignore non-regular files
-        return -1;
-    }
-
     int fd = open(path, O_RDONLY | O_NONBLOCK);
     if (fd < 0) {
-        // Ignore open errors
+        // Return if we cannot open the file
         return -1;
     }
 
@@ -146,47 +134,37 @@ void *list_directory(void *arg) {
     }
 
     struct dirent *entry;
+    struct stat path_stat;
+    char path[PATH_MAX];
     while ((entry = readdir(dir)) != NULL) {
         // Skip the entries "." and ".." as we don't want to loop on them.
-        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") ==
+        0)
             continue;
 
-#if defined(_DIRENT_HAVE_D_TYPE)
-        if (entry->d_type == DT_DIR) {
-#else
-        stat(path, &path_stat);
-        if (S_ISDIR(path_stat.st_mode)) {
-#endif
-            char path[PATH_MAX];
-            if (strcmp(args->path, "/") == 0) {
-                snprintf(path, sizeof(path), "%s%s", args->path, entry->d_name);
-            } else {
-                snprintf(path, sizeof(path), "%s" PATH_SEPARATOR "%s",
-                         args->path, entry->d_name);
-            }
-            ThreadArgs new_args = {.path = path,
-                                   .file_count = args->file_count,
-                                   .dir_count = args->dir_count + 1,
-                                   .buffer = args->buffer};
-            list_directory(&new_args);
+        if (strcmp(args->path, "/") == 0) {
+            snprintf(path, sizeof(path), "%s%s", args->path, entry->d_name);
         } else {
-            // Calculate and print the hash of the file
-            // uint8_t hash[BLAKE3_OUT_LEN];
-            // size_t size = 0;
-            // compute_hash(path, &blake3_algorithm, hash, &size);
+            snprintf(path, sizeof(path), "%s" PATH_SEPARATOR "%s",
+                     args->path, entry->d_name);
+        }
 
-            // char hash_str[BLAKE3_OUT_LEN * 2 +
-            //               1]; // Each byte will be 2 characters in hex, plus
-            //                   // null terminator
-            // for (size_t i = 0; i < BLAKE3_OUT_LEN; i++) {
-            //     sprintf(&hash_str[i * 2], "%02x", hash[i]);
-            // }
-            // printf(COLOR_FILE "%s %s (size %ld)\n" COLOR_RESET, hash_str,
-            // path,
-            //        size);
-            // printf(COLOR_FILE "Writing path: %s\n" COLOR_RESET, path);
-            write_ring_buffer(args->buffer, args->path, entry->d_name);
-            *args->file_count += 1;
+        if (stat(path, &path_stat) != 0) {
+            perror("Failed to stat file");
+            continue;
+        }
+
+        if (S_ISDIR(path_stat.st_mode)) {
+            (*args->dir_count)++;
+            char *current_path = args->path;
+            args->path = path;
+            list_directory(args);
+            args->path = current_path;
+        } else {
+            if (S_ISREG(path_stat.st_mode)) {
+                write_ring_buffer(args->buffer, args->path, entry->d_name);
+                (*args->file_count)++;
+            }
         }
     }
     closedir(dir);
@@ -241,13 +219,12 @@ void *print_file_path(void *arg) {
     return NULL;
 }
 
-// TODO: For each file, calculate the hash
 // TODO: Build a hash table
 // TODO: Find duplicates and empty files
 // TODO: Print the results
 int main(int argc, char *argv[]) {
-    int file_count = 0;
-    int dir_count = 0;
+    unsigned file_count = 0;
+    unsigned dir_count = 0;
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <directory>\n", argv[0]);
         return 1;
@@ -282,6 +259,8 @@ int main(int argc, char *argv[]) {
 
     // Don't forget to free the buffer when you're done with it
     destroy_ring_buffer(buffer);
+
+    printf("Found %d files and %d directories\n", file_count, dir_count);
 
     return 0;
 }
