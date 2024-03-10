@@ -8,11 +8,13 @@
 #include "shared/consts.h"
 #include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <pthread.h>
 #include <semaphore.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/select.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -37,7 +39,6 @@ typedef struct {
 } HashAlgorithm;
 
 volatile int writing = 1;
-volatile int active_calls = 0;
 
 void blake3_init(void *state) { blake3_hasher_init((blake3_hasher *)state); }
 
@@ -52,30 +53,91 @@ void blake3_finalize(void *state, uint8_t *output, size_t output_len) {
 HashAlgorithm blake3_algorithm = {
     .init = blake3_init, .update = blake3_update, .finalize = blake3_finalize};
 
-void compute_hash(const char *path, HashAlgorithm *algorithm, uint8_t *hash,
-                  size_t *total) {
-    FILE *file = fopen(path, "rb");
-    if (file == NULL) {
-        // Handle error
-        return;
+// void compute_hash(const char *path, HashAlgorithm *algorithm, uint8_t *hash,
+//                   size_t *total) {
+//     FILE *file = fopen(path, "rb");
+//     if (file == NULL) {
+//         // Ignore open errors
+//         return;
+//     }
+
+//     blake3_hasher hasher;
+//     algorithm->init(&hasher);
+
+//     uint8_t buffer[16384];
+//     size_t n;
+//     while ((n = fread(buffer, 1, sizeof(buffer), file)) > 0) {
+//         algorithm->update(&hasher, buffer, n);
+//         *total += n;
+//     }
+//     fclose(file);
+
+//     algorithm->finalize(&hasher, hash, BLAKE3_OUT_LEN);
+// }
+
+int compute_hash(const char *path, HashAlgorithm *algorithm, uint8_t *hash,
+                 size_t *total) {
+
+    struct stat st;
+    if (stat(path, &st) != 0) {
+        // Ignore stat errors
+        return -1;
+    }
+
+    // Check if the file is a regular file
+    if (!S_ISREG(st.st_mode)) {
+        // Ignore non-regular files
+        return -1;
+    }
+
+    int fd = open(path, O_RDONLY | O_NONBLOCK);
+    if (fd < 0) {
+        // Ignore open errors
+        return -1;
     }
 
     blake3_hasher hasher;
     algorithm->init(&hasher);
 
     uint8_t buffer[16384];
-    size_t n;
-    while ((n = fread(buffer, 1, sizeof(buffer), file)) > 0) {
-        algorithm->update(&hasher, buffer, n);
-        *total += n;
+    ssize_t n;
+
+    fd_set set;
+    struct timeval timeout;
+
+    // Initialize the file descriptor set.
+    FD_ZERO(&set);
+    FD_SET(fd, &set);
+
+    // Initialize the timeout data structure.
+    timeout.tv_sec = 1; // 1 seconds timeout
+    timeout.tv_usec = 0;
+
+    while (select(fd + 1, &set, NULL, NULL, &timeout) > 0) {
+        n = read(fd, buffer, sizeof(buffer));
+        if (n > 0) {
+            algorithm->update(&hasher, buffer, n);
+            *total += n;
+        } else if (n == 0 || (n < 0 && errno != EAGAIN)) {
+            // End of file or read error other than EAGAIN
+            break;
+        }
+
+        // Reinitialize the file descriptor set for the next select call.
+        FD_ZERO(&set);
+        FD_SET(fd, &set);
+
+        // Reinitialize the timeout for the next select call.
+        timeout.tv_sec = 1;
+        timeout.tv_usec = 0;
     }
-    fclose(file);
+    close(fd);
 
     algorithm->finalize(&hasher, hash, BLAKE3_OUT_LEN);
+    return 0;
 }
 
 void *list_directory(void *arg) {
-    __sync_fetch_and_add(&active_calls, 1);
     ThreadArgs *args = (ThreadArgs *)arg;
     DIR *dir = opendir(args->path);
     if (dir == NULL) {
@@ -95,7 +157,6 @@ void *list_directory(void *arg) {
         stat(path, &path_stat);
         if (S_ISDIR(path_stat.st_mode)) {
 #endif
-            // printf(COLOR_DIRECTORY "%s (directory)\n" COLOR_RESET, path);
             char path[PATH_MAX];
             if (strcmp(args->path, "/") == 0) {
                 snprintf(path, sizeof(path), "%s%s", args->path, entry->d_name);
@@ -129,9 +190,6 @@ void *list_directory(void *arg) {
         }
     }
     closedir(dir);
-    if (__sync_sub_and_fetch(&active_calls, 1) == 0) {
-        writing = 0;
-    }
     return NULL;
 }
 
@@ -156,8 +214,24 @@ void *print_file_path(void *arg) {
 
     char *path;
     while (writing || !is_ring_buffer_empty(buffer)) {
+        if (is_ring_buffer_empty(buffer)) {
+            continue;
+        }
         path = read_ring_buffer(buffer, &timeout);
-        printf(COLOR_FILE "FILE: %s\n" COLOR_RESET, path);
+
+        // Calculate and print the hash of the file
+        uint8_t hash[BLAKE3_OUT_LEN];
+        size_t size = 0;
+        if (compute_hash(path, &blake3_algorithm, hash, &size) == 0) {
+            char hash_str[BLAKE3_OUT_LEN * 2 +
+                          1]; // Each byte will be 2 characters
+                              // in hex, plus null terminator
+            for (size_t i = 0; i < BLAKE3_OUT_LEN; i++) {
+                sprintf(&hash_str[i * 2], "%02x", hash[i]);
+            }
+            printf(COLOR_FILE "%s %s (size %ld)\n" COLOR_RESET, hash_str, path,
+                   size);
+        }
         free_ring_buffer(buffer);
         if (path == NULL) {
             printf("Ring buffer is empty, exiting\n");
@@ -178,11 +252,6 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Usage: %s <directory>\n", argv[0]);
         return 1;
     }
-
-    // RingBuffer *buffer = create_ring_buffer(BUFFER_SIZE);
-    // list_directory(argv[1], &file_count, &dir_count, buffer);
-    // printf("Total file count: %d, total dir count %d\n", file_count,
-    // dir_count); return 0;
 
     // Create and initialize the ring buffer
     RingBuffer *buffer = create_ring_buffer(BUFFER_SIZE);
@@ -208,6 +277,7 @@ int main(int argc, char *argv[]) {
 
     // Wait for the threads to finish
     pthread_join(list_dir_thread, NULL);
+    writing = 0;
     pthread_join(print_thread, NULL);
 
     // Don't forget to free the buffer when you're done with it
