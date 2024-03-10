@@ -4,3 +4,6 @@
 [submodule "submodules/criterion"]
 	path = submodules/criterion
 	url = https://github.com/Snaipe/Criterion.git
+[submodule "submodules/uthash"]
+	path = submodules/uthash
+	url = https://github.com/troydhanson/uthash.git

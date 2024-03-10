@@ -5,7 +5,7 @@ CFLAGS_RELEASE=-Wall -Wextra -Werror -std=c11 -pedantic \
        -O3 -mavx -mavx2 -msse4.1 \
 	   -DBLAKE3_NO_AVX512
 LIBS=-Lsubmodules/criterion/build/src
-INCLUDES=-Isubmodules/BLAKE3/c -Isubmodules/criterion/include
+INCLUDES=-Isubmodules/BLAKE3/c -Isubmodules/criterion/include -Isubmodules/uthash/src
 
 SRC_FILES=src/dedup.c
 LIB_SRC_FILES=src/lib/ring_buffer.c src/lib/hashing.c

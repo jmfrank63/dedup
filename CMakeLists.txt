@@ -7,6 +7,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Include paths
 include_directories(submodules/BLAKE3/c)
+include_directories(submodules/uthash/src)
 include_directories(submodules/criterion/include)
 
 link_directories(submodules/criterion/build/src)
