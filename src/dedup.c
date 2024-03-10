@@ -1,9 +1,11 @@
 #ifndef _DEFAULT_SOURCE
 #define _DEFAULT_SOURCE
+#include "blake3.h"
+#include "lib/hashing.h"
 #include <linux/limits.h>
+#include <stdint.h>
 #endif
 
-#include "blake3.h"
 #include "lib/ring_buffer.h"
 #include "shared/consts.h"
 #include <dirent.h>
@@ -32,98 +34,7 @@ typedef struct {
     RingBuffer *buffer;
 } ThreadArgs;
 
-typedef struct {
-    void (*init)(void *);
-    void (*update)(void *, const void *, size_t);
-    void (*finalize)(void *, uint8_t *, size_t);
-} HashAlgorithm;
-
 volatile int writing = 1;
-
-void blake3_init(void *state) { blake3_hasher_init((blake3_hasher *)state); }
-
-void blake3_update(void *state, const void *input, size_t input_len) {
-    blake3_hasher_update((blake3_hasher *)state, input, input_len);
-}
-
-void blake3_finalize(void *state, uint8_t *output, size_t output_len) {
-    blake3_hasher_finalize((blake3_hasher *)state, output, output_len);
-}
-
-HashAlgorithm blake3_algorithm = {
-    .init = blake3_init, .update = blake3_update, .finalize = blake3_finalize};
-
-// void compute_hash(const char *path, HashAlgorithm *algorithm, uint8_t *hash,
-//                   size_t *total) {
-//     FILE *file = fopen(path, "rb");
-//     if (file == NULL) {
-//         // Ignore open errors
-//         return;
-//     }
-
-//     blake3_hasher hasher;
-//     algorithm->init(&hasher);
-
-//     uint8_t buffer[16384];
-//     size_t n;
-//     while ((n = fread(buffer, 1, sizeof(buffer), file)) > 0) {
-//         algorithm->update(&hasher, buffer, n);
-//         *total += n;
-//     }
-//     fclose(file);
-
-//     algorithm->finalize(&hasher, hash, BLAKE3_OUT_LEN);
-// }
-
-int compute_hash(const char *path, HashAlgorithm *algorithm, uint8_t *hash,
-                 size_t *total) {
-
-    int fd = open(path, O_RDONLY | O_NONBLOCK);
-    if (fd < 0) {
-        // Return if we cannot open the file
-        return -1;
-    }
-
-    blake3_hasher hasher;
-    algorithm->init(&hasher);
-
-    uint8_t buffer[16384];
-    ssize_t n;
-
-    fd_set set;
-    struct timeval timeout;
-
-    // Initialize the file descriptor set.
-    FD_ZERO(&set);
-    FD_SET(fd, &set);
-
-    // Initialize the timeout data structure.
-    timeout.tv_sec = 1; // 1 seconds timeout
-    timeout.tv_usec = 0;
-
-    while (select(fd + 1, &set, NULL, NULL, &timeout) > 0) {
-        n = read(fd, buffer, sizeof(buffer));
-        if (n > 0) {
-            algorithm->update(&hasher, buffer, n);
-            *total += n;
-        } else if (n == 0 || (n < 0 && errno != EAGAIN)) {
-            // End of file or read error other than EAGAIN
-            break;
-        }
-
-        // Reinitialize the file descriptor set for the next select call.
-        FD_ZERO(&set);
-        FD_SET(fd, &set);
-
-        // Reinitialize the timeout for the next select call.
-        timeout.tv_sec = 1;
-        timeout.tv_usec = 0;
-    }
-    close(fd);
-
-    algorithm->finalize(&hasher, hash, BLAKE3_OUT_LEN);
-    return 0;
-}
 
 void *list_directory(void *arg) {
     ThreadArgs *args = (ThreadArgs *)arg;
@@ -138,15 +49,14 @@ void *list_directory(void *arg) {
     char path[PATH_MAX];
     while ((entry = readdir(dir)) != NULL) {
         // Skip the entries "." and ".." as we don't want to loop on them.
-        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") ==
-        0)
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
             continue;
 
         if (strcmp(args->path, "/") == 0) {
             snprintf(path, sizeof(path), "%s%s", args->path, entry->d_name);
         } else {
-            snprintf(path, sizeof(path), "%s" PATH_SEPARATOR "%s",
-                     args->path, entry->d_name);
+            snprintf(path, sizeof(path), "%s" PATH_SEPARATOR "%s", args->path,
+                     entry->d_name);
         }
 
         if (stat(path, &path_stat) != 0) {
@@ -185,6 +95,9 @@ char *format_size(size_t size) {
 }
 
 void *print_file_path(void *arg) {
+    HashAlgorithm blake3_algorithm = {.init = blake3_init,
+                                      .update = blake3_update,
+                                      .finalize = blake3_finalize};
     RingBuffer *buffer = (RingBuffer *)arg;
     struct timespec timeout;
     clock_gettime(CLOCK_REALTIME, &timeout);
@@ -207,7 +120,8 @@ void *print_file_path(void *arg) {
             for (size_t i = 0; i < BLAKE3_OUT_LEN; i++) {
                 sprintf(&hash_str[i * 2], "%02x", hash[i]);
             }
-            // printf(COLOR_FILE "%s %s (size %ld)\n" COLOR_RESET, hash_str, path, size);
+            // printf(COLOR_FILE "%s %s (size %ld)\n" COLOR_RESET, hash_str,
+            // path, size);
         }
         free_ring_buffer(buffer);
     }

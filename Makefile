@@ -8,7 +8,7 @@ LIBS=-Lsubmodules/criterion/build/src
 INCLUDES=-Isubmodules/BLAKE3/c -Isubmodules/criterion/include
 
 SRC_FILES=src/dedup.c
-LIB_SRC_FILES=src/lib/ring_buffer.c
+LIB_SRC_FILES=src/lib/ring_buffer.c src/lib/hashing.c
 MODULE_SRC_FILES=submodules/BLAKE3/c/blake3.c submodules/BLAKE3/c/blake3_dispatch.c \
 	submodules/BLAKE3/c/blake3_portable.c submodules/BLAKE3/c/blake3_sse2.c \
 	submodules/BLAKE3/c/blake3_sse41.c submodules/BLAKE3/c/blake3_avx2.c
